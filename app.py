@@ -8,6 +8,11 @@ import sys # <-- Import sys to exit on failure
 import keyboard
 from ultralytics import YOLO
 
+# load model
+model = YOLO("detect_enemy.pt")
+model_threshold = 0.6
+print("detection model loaded")
+
 def findWindow(window_name="BlueStacks App Player"):
     """Finds the window and returns its coordinates and an mss instance."""
     print(f"Attempting to find window: '{window_name}'...")
@@ -217,53 +222,51 @@ while True:
         print("Quitting...")
         break
 
-    # --- ตรวจฝั่งซ้าย ---
+    # --- Grab left and right zones ---
     img_left = np.array(sct.grab(left_zone))
     frame_left = cv2.cvtColor(img_left, cv2.COLOR_BGRA2BGR)
 
-    # --- NEW: Left side checks (with mask) ---
-    res_punch_left = cv2.matchTemplate(frame_left, template_punch_bgr_left, cv2.TM_CCOEFF_NORMED, mask=template_punch_mask_left)
-    score_punch_left = cv2.minMaxLoc(res_punch_left)[1]
-    
-    res_kick_left = cv2.matchTemplate(frame_left, template_kick_bgr_left, cv2.TM_CCOEFF_NORMED, mask=template_kick_mask_left)
-    score_kick_left = cv2.minMaxLoc(res_kick_left)[1]
-    
-    res_duck_left = cv2.matchTemplate(frame_left, template_duck_bgr_left, cv2.TM_CCOEFF_NORMED, mask=template_duck_mask_left)
-    score_duck_left = cv2.minMaxLoc(res_duck_left)[1]
-
-    if score_punch_left > THRESHOLD:
-        pyautogui.click(button_positions["pl"])
-        time.sleep(0.1) # Wait a bit after a click
-    elif score_kick_left > THRESHOLD:
-        pyautogui.click(button_positions["hkl"])
-        time.sleep(0.1)
-    elif score_duck_left > THRESHOLD:
-        pyautogui.click(button_positions["kl"])
-        time.sleep(0.1)
-
-    # --- ตรวจฝั่งขวา ---
     img_right = np.array(sct.grab(right_zone))
     frame_right = cv2.cvtColor(img_right, cv2.COLOR_BGRA2BGR)
 
-    # --- NEW: Right side checks (with mask) ---
-    res_punch_right = cv2.matchTemplate(frame_right, template_punch_bgr, cv2.TM_CCOEFF_NORMED, mask=template_punch_mask)
-    score_punch_right = cv2.minMaxLoc(res_punch_right)[1]
+    # --- Run YOLOv8 detection ---
+    results_left = model.predict(source=frame_left, conf=model_threshold, verbose=False)
+    results_right = model.predict(source=frame_right, conf=model_threshold, verbose=False)
 
-    res_kick_right = cv2.matchTemplate(frame_right, template_kick_bgr, cv2.TM_CCOEFF_NORMED, mask=template_kick_mask)
-    score_kick_right = cv2.minMaxLoc(res_kick_right)[1]
+    # --- Process left detections ---
+    for r in results_left:
+        for box in r.boxes:
+            cls_id = int(box.cls[0])
+            label = model.names[cls_id]
+            conf = float(box.conf[0])
 
-    res_duck_right = cv2.matchTemplate(frame_right, template_duck_bgr, cv2.TM_CCOEFF_NORMED, mask=template_duck_mask)
-    score_duck_right = cv2.minMaxLoc(res_duck_right)[1]
+            if conf > model_threshold:
+                if label == "yellowbottle" or label== "bunny": # yellow , bunny
+                    pyautogui.click(button_positions["pl"])
+                    print(f"Left: Detected {label} ({conf:.2f}) -> click pl")
+                elif label == "cart" or label =="pig" or label== "redbottle": # cart ,pig , red 
+                    pyautogui.click(button_positions["hkl"])
+                    print(f"Left: Detected {label} ({conf:.2f}) -> click hkl")
+                elif label == "furret":
+                    pyautogui.click(button_positions["kl"])
+                    print(f"Left: Detected {label} ({conf:.2f}) -> click kl")
 
+    # --- Process right detections ---
+    for r in results_right:
+        for box in r.boxes:
+            cls_id = int(box.cls[0])
+            label = model.names[cls_id]
+            conf = float(box.conf[0])
 
-    if score_punch_right > THRESHOLD:
-        pyautogui.click(button_positions["pr"])
-        time.sleep(0.1)
-    elif score_kick_right > THRESHOLD:
-        pyautogui.click(button_positions["hkr"])
-        time.sleep(0.1)
-    elif score_duck_right > THRESHOLD:
-        pyautogui.click(button_positions["kr"])
-        time.sleep(0.1)
+            if conf > model_threshold:
+                if label == "yellowbottle" or label== "bunny": # yellow , bunny
+                    pyautogui.click(button_positions["pr"])
+                    print(f"Right: Detected {label} ({conf:.2f}) -> click pr")
+                elif label == "cart" or label =="pig" or label== "redbottle": # cart ,pig , red 
+                    pyautogui.click(button_positions["hkr"])
+                    print(f"Right: Detected {label} ({conf:.2f}) -> click hkr")
+                elif label == "furret":
+                    pyautogui.click(button_positions["kr"])
+                    print(f"Right: Detected {label} ({conf:.2f}) -> click kr")
 
-    time.sleep(0.01) # Loop speed
+    time.sleep(0.05)  # reduce CPU load a bit
