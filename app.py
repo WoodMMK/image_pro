@@ -71,9 +71,9 @@ def findButton(sct, windowframe):
     # from the CENTER of the high-kick button to the CENTER of the others.
     
     # Offset from high-kick (middle) to punch (top)
-    OFFSET_Y_PUNCH = -100 # (e.g., -100 pixels)
+    OFFSET_Y_PUNCH = -110 # <--- PUT YOUR NUMBER HERE
     # Offset from high-kick (middle) to low-kick (bottom)
-    OFFSET_Y_KICK = 100  # (e.g., +100 pixels)
+    OFFSET_Y_KICK = 110  # <--- PUT YOUR NUMBER HERE
     # --- *** ---
 
     # Take one screenshot for calibration
@@ -89,11 +89,9 @@ def findButton(sct, windowframe):
     left_zone_rect = (0, h // 2, w // 2, h // 2) 
     right_zone_rect = (w // 2, h // 2, w // 2, h // 2) 
 
-    left_search_edges = screenshot_edges[left_zone_rect[1]:left_zone_rect[1] + left_zone_rect[3], 
-                                         left_zone_rect[0]:left_zone_rect[0] + left_zone_rect[2]]
+    left_search_edges = screenshot_edges[left_zone_rect[1]:left_zone_rect[1] + left_zone_rect[3],left_zone_rect[0]:left_zone_rect[0] + left_zone_rect[2]]
                                          
-    right_search_edges = screenshot_edges[right_zone_rect[1]:right_zone_rect[1] + right_zone_rect[3], 
-                                          right_zone_rect[0]:right_zone_rect[0] + right_zone_rect[2]]
+    right_search_edges = screenshot_edges[right_zone_rect[1]:right_zone_rect[1] + right_zone_rect[3], right_zone_rect[0]:right_zone_rect[0] + right_zone_rect[2]]
 
     # Define ONLY the anchor templates
     template_files = {
@@ -174,6 +172,12 @@ def findButton(sct, windowframe):
     button_positions_absolute = {}
     for key, (x, y) in button_positions_relative.items():
         button_positions_absolute[key] = (window_x + x, window_y + y)
+    
+    # --- NEW DEBUG PRINT ---
+    print("\n--- Final Button Coordinates (Absolute) ---")
+    for key, pos in button_positions_absolute.items():
+        print(f"  {key}: {pos}")
+    # --- END DEBUG PRINT ---
         
     print("--- Calibration SUCCESSFUL ---")
     return button_positions_absolute
@@ -335,4 +339,4 @@ while True:
         pyautogui.keyDown(RUN_KEY) # No enemies, hold run
     
     # A tiny sleep at the end of the loop to prevent 100% CPU load
-    time.sleep(0.01)
+    time.sleep(0.03)
