@@ -57,12 +57,24 @@ def findPosition(template_edges, screenshot_edges, threshold):
     
     return None 
 
+# --- 4. Calibrate All Buttons (NEW Anchor Version) ---
 def findButton(sct, windowframe):
     """
-    Finds all 6 buttons using ROI and returns their absolute screen coordinates.
+    Finds the 2 middle buttons (hkl, hkr) and calculates the other 4.
+    This is much more reliable.
     """
-    print("\n--- Starting Button Calibration (with ROI) ---")
+    print("\n--- Starting Button Calibration (Anchor Mode) ---")
     threshold = 0.4 # Start with 0.4 for edge matching
+
+    # --- *** YOU MUST UPDATE THESE VALUES *** ---
+    # Open a screenshot in MS Paint and measure the pixel distance
+    # from the CENTER of the high-kick button to the CENTER of the others.
+    
+    # Offset from high-kick (middle) to punch (top)
+    OFFSET_Y_PUNCH = -100 # (e.g., -100 pixels)
+    # Offset from high-kick (middle) to low-kick (bottom)
+    OFFSET_Y_KICK = 100  # (e.g., +100 pixels)
+    # --- *** ---
 
     # Take one screenshot for calibration
     try:
@@ -72,36 +84,27 @@ def findButton(sct, windowframe):
         print(f"[ERROR] Could not take screenshot: {e}")
         return None
 
-    # --- NEW: Define Search Zones ---
+    # Define search zones
     h, w = screenshot_edges.shape[:2]
-    
-    # Define rectangles (x, y, w, h) for the search zones
-    # (x, y) is the top-left corner of the slice
-    
-    # Bottom-left quadrant of the window
     left_zone_rect = (0, h // 2, w // 2, h // 2) 
-    # Bottom-right quadrant of the window
     right_zone_rect = (w // 2, h // 2, w // 2, h // 2) 
 
-    # Slice the screenshot_edges to create two smaller search areas
-    left_search_edges = screenshot_edges[left_zone_rect[1]:left_zone_rect[1] + left_zone_rect[3],left_zone_rect[0]:left_zone_rect[0] + left_zone_rect[2]]
+    left_search_edges = screenshot_edges[left_zone_rect[1]:left_zone_rect[1] + left_zone_rect[3], 
+                                         left_zone_rect[0]:left_zone_rect[0] + left_zone_rect[2]]
                                          
-    right_search_edges = screenshot_edges[right_zone_rect[1]:right_zone_rect[1] + right_zone_rect[3],right_zone_rect[0]:right_zone_rect[0] + right_zone_rect[2]]
+    right_search_edges = screenshot_edges[right_zone_rect[1]:right_zone_rect[1] + right_zone_rect[3], 
+                                          right_zone_rect[0]:right_zone_rect[0] + right_zone_rect[2]]
 
-    # Define all templates and which zone they belong in
+    # Define ONLY the anchor templates
     template_files = {
         "hkl": ("button/highKick_l.png", 'left'),
-        "kl": ("button/kick_l.png", 'left'),
-        "pl": ("button/punch_l.png", 'left'),
-        "hkr": ("button/highKick_r.png", 'right'),
-        "kr": ("button/kick_r.png", 'right'),
-        "pr": ("button/punch_r.png", 'right')
+        "hkr": ("button/highKick_r.png", 'right')
     }
     
-    button_positions_relative = {} # Stores (x,y) relative to the window
+    button_positions_relative = {}
     all_found = True
 
-    print("Searching for buttons in their correct zones...")
+    print("Searching for ANCHOR buttons (hkl, hkr)...")
     for key, (path, zone) in template_files.items():
         try:
             template_img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
@@ -116,20 +119,17 @@ def findButton(sct, windowframe):
             if zone == 'left':
                 pos = findPosition(template_edges, left_search_edges, threshold)
                 if pos:
-                    # ADD BACK THE OFFSET from the ROI slice
                     pos = (pos[0] + left_zone_rect[0], pos[1] + left_zone_rect[1])
-            
             elif zone == 'right':
                 pos = findPosition(template_edges, right_search_edges, threshold)
                 if pos:
-                    # ADD BACK THE OFFSET from the ROI slice
                     pos = (pos[0] + right_zone_rect[0], pos[1] + right_zone_rect[1])
             
             if pos:
                 button_positions_relative[key] = pos
-                print(f"[SUCCESS] Found '{key}' at window position {pos}")
+                print(f"[SUCCESS] Found anchor '{key}' at window position {pos}")
             else:
-                print(f"[FAIL] Could not find '{key}' in its zone. Try adjusting threshold.")
+                print(f"[FAIL] Could not find anchor '{key}'.")
                 all_found = False
 
         except Exception as e:
@@ -138,6 +138,33 @@ def findButton(sct, windowframe):
 
     if not all_found:
         print("[CRITICAL] Calibration failed. Bot cannot start.")
+        return None
+
+    # --- NEW: Calculate the other 4 buttons ---
+    print("Calculating remaining button positions...")
+    try:
+        # Get the anchor positions
+        hkl_pos = button_positions_relative["hkl"]
+        hkr_pos = button_positions_relative["hkr"]
+        
+        # Calculate left buttons
+        button_positions_relative["pl"] = (hkl_pos[0], hkl_pos[1] + OFFSET_Y_PUNCH)
+        button_positions_relative["kl"] = (hkl_pos[0], hkl_pos[1] + OFFSET_Y_KICK)
+        
+        # Calculate right buttons
+        button_positions_relative["pr"] = (hkr_pos[0], hkr_pos[1] + OFFSET_Y_PUNCH)
+        button_positions_relative["kr"] = (hkr_pos[0], hkr_pos[1] + OFFSET_Y_KICK)
+        
+        print(f"  Calculated 'pl' at {button_positions_relative['pl']}")
+        print(f"  Calculated 'kl' at {button_positions_relative['kl']}")
+        print(f"  Calculated 'pr' at {button_positions_relative['pr']}")
+        print(f"  Calculated 'kr' at {button_positions_relative['kr']}")
+
+    except KeyError:
+        print("[ERROR] Could not calculate positions because an anchor button was missing.")
+        return None
+    except Exception as e:
+        print(f"[ERROR] in position calculation: {e}")
         return None
 
     # Convert relative (x,y) to absolute screen (x,y)
@@ -151,8 +178,7 @@ def findButton(sct, windowframe):
     print("--- Calibration SUCCESSFUL ---")
     return button_positions_absolute
 
-
-# --- MAIN SCRIPT EXECUTION ---
+# --- MAIN SCRIPT EXECUTION (NEW OPTIMIZED VERSION) ---
 print("starting...")
 sct, windowframe = findWindow()
 
@@ -165,108 +191,148 @@ button_positions = findButton(sct, windowframe)
 if button_positions is None:
     sys.exit() # Exit if calibration failed
 
-# --- NEW: Load ENEMY templates (with Mask) ---
-print("Loading enemy templates with masks...")
+# --- 1. SET UP YOUR MODEL & CLASSES ---
 try:
-    # --- PUNCH ENEMY (Rabbit) ---
-    # Load as-is, with transparency
-    template_punch_rgba = cv2.imread("enemy/enemy_punch1.png", cv2.IMREAD_UNCHANGED)
-    # Get the transparency channel (the 4th channel) to use as the mask
-    template_punch_mask = template_punch_rgba[:, :, 3]
-    # Get the color channels
-    template_punch_bgr = template_punch_rgba[:, :, :3]
-    # Flip them for the left side
-    template_punch_bgr_left = cv2.flip(template_punch_bgr, 1)
-    template_punch_mask_left = cv2.flip(template_punch_mask, 1)
-
-    # --- KICK ENEMY (Pig) ---
-    template_kick_rgba = cv2.imread("enemy/enemy_kick1.png", cv2.IMREAD_UNCHANGED)
-    template_kick_mask = template_kick_rgba[:, :, 3]
-    template_kick_bgr = template_kick_rgba[:, :, :3]
-    template_kick_bgr_left = cv2.flip(template_kick_bgr, 1)
-    template_kick_mask_left = cv2.flip(template_kick_mask, 1)
-
-    # --- DUCK ENEMY (Ferret) ---
-    template_duck_rgba = cv2.imread("enemy/enemy_duck1.png", cv2.IMREAD_UNCHANGED)
-    template_duck_mask = template_duck_rgba[:, :, 3]
-    template_duck_bgr = template_duck_rgba[:, :, :3]
-    template_duck_bgr_left = cv2.flip(template_duck_bgr, 1)
-    template_duck_mask_left = cv2.flip(template_duck_mask, 1)
-
+    model = YOLO("detect_enemy.pt")
+    model_threshold = 0.6
+    print("detection model loaded")
 except Exception as e:
-    print(f"[ERROR] Could not load ENEMY template images: {e}")
-    print("Make sure your enemy images are PNGs with a transparent background.")
+    print(f"[ERROR] Could not load model 'detect_enemy.pt': {e}")
     sys.exit()
 
+# --- 2. DEFINE YOUR DYNAMIC ZONES & PLAYER ---
 
-# Define your enemy detection zones (relative to the window)
-# *** YOU MUST UPDATE THESE VALUES. These are just guesses ***
-# These zones MUST be in global screen coordinates for mss.grab()
-zone_top_y = windowframe["top"] + 250  # Guess: 250px from top of window
-zone_height = 200                     # Guess: 200px tall
-left_zone_x = windowframe["left"] + 200 # Guess: 200px from left of window
-right_zone_x = windowframe["left"] + 550 # Guess: 550px from left of window
-zone_width = 150                      # Guess: 150px wide
+# --- *** YOU MUST UPDATE THIS *** ---
+# What is the exact name of your PLAYER class in the model?
+# Check your data.yaml file.
+PLAYER_CLASS_NAME = "duck" 
+# --- *** ---
 
-left_zone = {"top": zone_top_y, "left": left_zone_x, "width": zone_width, "height": zone_height}
-right_zone = {"top": zone_top_y, "left": right_zone_x, "width": zone_width, "height": zone_height}
+# --- NEW: Smaller Danger Zone ---
+# We will create a "danger window" on each side of the player
+#
+# DANGER_ZONE_BUFFER: How close an enemy can get before we stop.
+# (This is the "dead zone" right next to the player)
+DANGER_ZONE_BUFFER = 30  # e.g., 30 pixels
+#
+# MAX_DANGER_DISTANCE: How far away we start paying attention.
+# (Enemies further than this will be ignored)
+MAX_DANGER_DISTANCE = 250 # e.g., 250 pixels
 
-# We need a HIGHER threshold now because the mask makes the match much more accurate
-THRESHOLD = 0.48
+# What key do you hold to run?
+RUN_KEY = 'shift' # <-- UPDATE THIS if it's a different key
+
+# Default player position (fallback in case player is not detected)
+default_player_x = windowframe["width"] // 2
+current_player_x = default_player_x
 
 print("\n--- Bot is RUNNING --- Press 'q' in this terminal to stop.")
+print(f"Bot will look for player class: '{PLAYER_CLASS_NAME}'")
+print(f"Danger zone set to: {DANGER_ZONE_BUFFER}px to {MAX_DANGER_DISTANCE}px from player.")
 
-# --- MAIN LOOP ---
+# --- 3. OPTIMIZED MAIN LOOP ---
 while True:
     if keyboard.is_pressed('q'):
+        pyautogui.keyUp(RUN_KEY) 
         print("Quitting...")
         break
 
-    # --- Grab left and right zones ---
-    img_left = np.array(sct.grab(left_zone))
-    frame_left = cv2.cvtColor(img_left, cv2.COLOR_BGRA2BGR)
+    # --- 4. GRAB ONCE, PREDICT ONCE (This is the speed-up) ---
+    img = np.array(sct.grab(windowframe))
+    frame_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+    
+    # Run YOLOv8 detection ONCE on the full frame
+    results = model(frame_bgr, conf=model_threshold, verbose=False, stream=True)
 
-    img_right = np.array(sct.grab(right_zone))
-    frame_right = cv2.cvtColor(img_right, cv2.COLOR_BGRA2BGR)
+    enemy_detected_in_zone = False
+    current_player_x = default_player_x # Reset to default each frame
+    
+    detections = []
+    try:
+        for r in results:
+            detections.extend(r.boxes)
+    except Exception as e:
+        print(f"Error processing results: {e}")
+        continue # Skip this frame
 
-    # --- Run YOLOv8 detection ---
-    results_left = model.predict(source=frame_left, conf=model_threshold, verbose=False)
-    results_right = model.predict(source=frame_right, conf=model_threshold, verbose=False)
+    # --- 5. PASS 1: Find the Player (as you requested) ---
+    # We loop through all detections to find the player first
+    for box in detections:
+        try:
+            cls_id = int(box.cls[0])
+            label = model.names[cls_id]
 
-    # --- Process left detections ---
-    for r in results_left:
-        for box in r.boxes:
+            if label == PLAYER_CLASS_NAME:
+                x1, y1, x2, y2 = box.xyxy[0]
+                current_player_x = (x1 + x2) / 2 # Get player's center X
+                break # Found the player, stop this loop
+        except:
+            continue # Ignore bad detections
+
+    # --- 6. PASS 2: Find Enemies in the *New Smaller Zones* ---
+    
+    # Define the dynamic zones based on the player's *current* position
+    left_danger_zone_start = current_player_x - MAX_DANGER_DISTANCE
+    left_danger_zone_end = current_player_x - DANGER_ZONE_BUFFER
+    
+    right_danger_zone_start = current_player_x + DANGER_ZONE_BUFFER
+    right_danger_zone_end = current_player_x + MAX_DANGER_DISTANCE
+
+    for box in detections:
+        try:
             cls_id = int(box.cls[0])
             label = model.names[cls_id]
             conf = float(box.conf[0])
+        except:
+            continue # Ignore bad detections
 
-            if conf > model_threshold:
-                if label == "yellowbottle" or label== "bunny": # yellow , bunny
-                    pyautogui.click(button_positions["pl"])
-                    print(f"Left: Detected {label} ({conf:.2f}) -> click pl")
-                elif label == "cart" or label =="pig" or label== "redbottle": # cart ,pig , red 
-                    pyautogui.click(button_positions["hkl"])
-                    print(f"Left: Detected {label} ({conf:.2f}) -> click hkl")
-                elif label == "furret":
-                    pyautogui.click(button_positions["kl"])
-                    print(f"Left: Detected {label} ({conf:.2f}) -> click kl")
+        # Skip low-confidence scores and the player itself
+        if label == PLAYER_CLASS_NAME or conf < model_threshold:
+            continue
+        
+        # We found an enemy!
+        x1, y1, x2, y2 = box.xyxy[0]
+        enemy_center_x = (x1 + x2) / 2
 
-    # --- Process right detections ---
-    for r in results_right:
-        for box in r.boxes:
-            cls_id = int(box.cls[0])
-            label = model.names[cls_id]
-            conf = float(box.conf[0])
+        # --- 7. NEW: Check if enemy is inside the smaller zones ---
+        
+        # Check LEFT Zone
+        if left_danger_zone_start < enemy_center_x < left_danger_zone_end:
+            enemy_detected_in_zone = True
+            if label == "yellowbottle" or label== "left bunny":
+                pyautogui.click(button_positions["pl"])
+                print(f"Left Zone: Detected {label} -> click pl")
+            elif label == "cart" or label =="pig" or label== "redbottle":
+                pyautogui.click(button_positions["hkl"])
+                print(f"Left Zone: Detected {label} -> click hkl")
+            elif label == "furret" or label=="greenbottle":
+                pyautogui.click(button_positions["kl"])
+                print(f"Left Zone: Detected {label} -> click kl")
+            
+            time.sleep(0.05) # Small delay after clicking
+            break # Handle one enemy at a time
 
-            if conf > model_threshold:
-                if label == "yellowbottle" or label== "bunny": # yellow , bunny
-                    pyautogui.click(button_positions["pr"])
-                    print(f"Right: Detected {label} ({conf:.2f}) -> click pr")
-                elif label == "cart" or label =="pig" or label== "redbottle": # cart ,pig , red 
-                    pyautogui.click(button_positions["hkr"])
-                    print(f"Right: Detected {label} ({conf:.2f}) -> click hkr")
-                elif label == "furret":
-                    pyautogui.click(button_positions["kr"])
-                    print(f"Right: Detected {label} ({conf:.2f}) -> click kr")
+        # Check RIGHT Zone
+        elif right_danger_zone_start < enemy_center_x < right_danger_zone_end:
+            enemy_detected_in_zone = True
+            if label == "yellowbottle" or label== "left bunny":
+                pyautogui.click(button_positions["pr"])
+                print(f"Right Zone: Detected {label} -> click pr")
+            elif label == "cart" or label =="pig" or label== "redbottle":
+                pyautogui.click(button_positions["hkr"])
+                print(f"Right Zone: Detected {label} -> click hkr")
+            elif label == "furret" or label=="greenbottle":
+                pyautogui.click(button_positions["kr"])
+                print(f"Right Zone: Detected {label} -> click kr")
+            
+            time.sleep(0.05)
+            break 
 
-    time.sleep(0.05)  # reduce CPU load a bit
+    # --- 8. Handle "Hold Run" (Idle Action) ---
+    if enemy_detected_in_zone:
+        pyautogui.keyUp(RUN_KEY) # An enemy is here, stop running
+    else:
+        pyautogui.keyDown(RUN_KEY) # No enemies, hold run
+    
+    # A tiny sleep at the end of the loop to prevent 100% CPU load
+    time.sleep(0.01)
