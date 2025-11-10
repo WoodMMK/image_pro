@@ -8,6 +8,15 @@ import sys # <-- Import sys to exit on failure
 import keyboard
 from ultralytics import YOLO
 
+# --- Load Model (do this ONCE) ---
+try:
+    model = YOLO("detect_enemy.pt")
+    model_threshold = 0.5
+    print("detection model loaded")
+except Exception as e:
+    print(f"[FATAL ERROR] Could not load model 'detect_enemy.pt': {e}")
+    sys.exit()
+
 def findWindow(window_name="BlueStacks App Player"):
     """Finds the window and returns its coordinates and an mss instance."""
     print(f"Attempting to find window: '{window_name}'...")
@@ -56,7 +65,6 @@ def findPosition(template_edges, screenshot_edges, threshold):
 def findButton(sct, windowframe):
     """
     Finds the 2 middle buttons (hkl, hkr) and calculates the other 4.
-    This is much more reliable.
     """
     print("\n--- Starting Button Calibration (Anchor Mode) ---")
     threshold = 0.4 # Start with 0.4 for edge matching
@@ -177,7 +185,7 @@ def findButton(sct, windowframe):
     print("--- Calibration SUCCESSFUL ---")
     return button_positions_absolute
 
-# --- MAIN SCRIPT EXECUTION (NEW OPTIMIZED VERSION) ---
+# --- MAIN SCRIPT EXECUTION (OPTIMIZED WITH COOLDOWNS) ---
 print("starting...")
 sct, windowframe = findWindow()
 
@@ -191,41 +199,25 @@ if button_positions is None:
     sys.exit() # Exit if calibration failed
 
 # --- 1. SET UP YOUR MODEL & CLASSES ---
-try:
-    model = YOLO("detect_enemy.pt")
-    model_threshold = 0.5
-    print("detection model loaded")
-except Exception as e:
-    print(f"[ERROR] Could not load model 'detect_enemy.pt': {e}")
-    sys.exit()
+# (Already loaded model at the top)
 
 # --- 2. DEFINE YOUR DYNAMIC ZONES & PLAYER ---
-
-# --- *** YOU MUST UPDATE THIS *** ---
-# What is the exact name of your PLAYER class in the model?
-# Check your data.yaml file.
 PLAYER_CLASS_NAME = "duck" 
-# --- *** ---
-
-# --- NEW: Smaller Danger Zone ---
-# We will create a "danger window" on each side of the player
-#
-# DANGER_ZONE_BUFFER: How close an enemy can get before we stop.
-# (This is the "dead zone" right next to the player)
-DANGER_ZONE_BUFFER = 30  # e.g., 30 pixels
-#
-# MAX_DANGER_DISTANCE: How far away we start paying attention.
-# (Enemies further than this will be ignored)
-MAX_DANGER_DISTANCE = 250 # e.g., 250 pixels
-
-# Default player position (fallback in case player is not detected)
+DANGER_ZONE_BUFFER = 30  
+MAX_DANGER_DISTANCE = 250 
+RUN_KEY = 'shift' # <--- UPDATE THIS if it's a different key
 default_player_x = windowframe["width"] // 2
-current_player_x = default_player_x
 
-cv2.namedWindow("Bot Debug View", cv2.WINDOW_NORMAL)
-# Resize and position the debug window (you can change these numbers)   
-cv2.resizeWindow("Bot Debug View", windowframe["width"] // 2, windowframe["height"] // 2)
-cv2.moveWindow("Bot Debug View", windowframe["left"] + windowframe["width"], windowframe["top"])
+# --- NEW: Independent Cooldowns ---
+ATTACK_COOLDOWN = 0.3 # Cooldown in seconds. TUNE THIS.
+last_attack_timestamp_left = 0
+last_attack_timestamp_right = 0
+# ---
+
+# --- REMOVED: Create the debug window ---
+# cv2.namedWindow("Bot Debug View", cv2.WINDOW_NORMAL)
+# cv2.resizeWindow("Bot Debug View", windowframe["width"] // 2, windowframe["height"] // 2)
+# cv2.moveWindow("Bot Debug View", windowframe["left"] + windowframe["width"], windowframe["top"])
 
 print("\n--- Bot is RUNNING --- Press 'q' in this terminal to stop.")
 print(f"Bot will look for player class: '{PLAYER_CLASS_NAME}'")
@@ -234,22 +226,25 @@ print(f"Danger zone set to: {DANGER_ZONE_BUFFER}px to {MAX_DANGER_DISTANCE}px fr
 # --- 3. OPTIMIZED MAIN LOOP ---
 while True:
     if keyboard.is_pressed('q'):
+        pyautogui.keyUp(RUN_KEY) 
         print("Quitting...")
         break
 
-    # --- 4. GRAB ONCE, PREDICT ONCE (This is the speed-up) ---
+    current_time = time.time() # Get time at the start of the loop
+        
+    # --- 4. GRAB ONCE, PREDICT ONCE ---
     img = np.array(sct.grab(windowframe))
     frame_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
     
-    debug_frame = frame_bgr.copy()
-    # Get the height of the frame for drawing
-    h, w, _ = debug_frame.shape
-
+    # --- REMOVED: Create a copy of the frame to draw on ---
+    # debug_frame = frame_bgr.copy()
+    # h, w, _ = debug_frame.shape
 
     # Run YOLOv8 detection ONCE on the full frame
     results = model(frame_bgr, conf=model_threshold, verbose=False, stream=True)
 
-    enemy_detected_in_zone = False
+    enemy_detected_left = False # Reset flag
+    enemy_detected_right = False # Reset flag
     current_player_x = default_player_x # Reset to default each frame
     
     detections = []
@@ -260,103 +255,115 @@ while True:
         print(f"Error processing results: {e}")
         continue # Skip this frame
 
-    # --- 5. PASS 1: Find the Player (as you requested) ---
-    # We loop through all detections to find the player first
-    # for box in detections:
-    #     try:
-    #         cls_id = int(box.cls[0])
-    #         label = model.names[cls_id]
+    # --- 5. PASS 1: Find the Player (This is UNCOMMENTED and fixed) ---
+    for box in detections:
+        try:
+            cls_id = int(box.cls[0])
+            label = model.names[cls_id]
 
-    #         if label == PLAYER_CLASS_NAME:
-    #             x1, y1, x2, y2 = box.xyxy[0]
-    #             current_player_x = (x1 + x2) / 2 # Get player's center X
+            if label == PLAYER_CLASS_NAME:
+                x1, y1, x2, y2 = box.xyxy[0]
+                current_player_x = (x1 + x2) / 2 # Get player's center X
                 
-    #             # --- NEW: Draw GREEN box on the duck ---
-    #             pt1 = (int(x1), int(y1))
-    #             pt2 = (int(x2), int(y2))
-    #             cv2.rectangle(debug_frame, pt1, pt2, (0, 255, 0), 2)
-    #             cv2.putText(debug_frame, "PLAYER", (pt1[0], pt1[1] - 10),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-    #             print("found duck class")
-    #             break # Found the player, stop this loop
-    #     except:
-    #         continue # Ignore bad detections
+                # --- REMOVED: Draw GREEN box on the duck ---
+                # pt1 = (int(x1), int(y1))
+                # pt2 = (int(x2), int(y2))
+                # cv2.rectangle(debug_frame, pt1, pt2, (0, 255, 0), 2)
+                # cv2.putText(debug_frame, "PLAYER", (pt1[0], pt1[1] - 10),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                break # Found the player, stop this loop
+        except:
+            continue # Ignore bad detections
 
     # --- 6. PASS 2: Find Enemies in the *New Smaller Zones* ---
     
     # Define the dynamic zones based on the player's *current* position
     left_danger_zone_start = int(current_player_x - MAX_DANGER_DISTANCE)
     left_danger_zone_end = int(current_player_x - DANGER_ZONE_BUFFER)
-    
     right_danger_zone_start = int(current_player_x + DANGER_ZONE_BUFFER)
     right_danger_zone_end = int(current_player_x + MAX_DANGER_DISTANCE)
     
-    # Draw LEFT zone (yellow)
-    cv2.rectangle(debug_frame, (left_danger_zone_start, 0), (left_danger_zone_end, h), (0, 255, 255), 2)
-    # Draw RIGHT zone (yellow)
-    cv2.rectangle(debug_frame, (right_danger_zone_start, 0), (right_danger_zone_end, h), (0, 255, 255), 2)
+    # --- REMOVED: Draw danger zones ---
+    # cv2.rectangle(debug_frame, (left_danger_zone_start, 0), (left_danger_zone_end, h), (0, 255, 255), 2)
+    # cv2.rectangle(debug_frame, (right_danger_zone_start, 0), (right_danger_zone_end, h), (0, 255, 255), 2)
 
-    for box in detections:
-        try:
-            cls_id = int(box.cls[0])
-            label = model.names[cls_id]
-            conf = float(box.conf[0])
-        except:
-            continue # Ignore bad detections
-
-        # Skip low-confidence scores and the player itself
-        if label == PLAYER_CLASS_NAME or conf < model_threshold:
-            continue
-        
-        # We found an enemy!
-        x1, y1, x2, y2 = box.xyxy[0]
-        enemy_center_x = (x1 + x2) / 2
-
-        # --- 7. NEW: Check if enemy is inside the smaller zones ---
-        
-        # Check LEFT Zone
-        if left_danger_zone_start < enemy_center_x < left_danger_zone_end:
-            enemy_detected_in_zone = True
-            # --- NEW: Draw RED box on the enemy ---
-            cv2.rectangle(debug_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
-            if label == "yellowbottle" or label== "left bunny":
-                pyautogui.click(button_positions["pl"])
-                print(f"Left Zone: Detected {label} -> click pl")
-            elif label == "cart" or label =="pig" or label== "redbottle":
-                pyautogui.click(button_positions["hkl"])
-                print(f"Left Zone: Detected {label} -> click hkl")
-            elif label == "furret" or label=="greenbottle":
-                pyautogui.click(button_positions["kl"])
-                print(f"Left Zone: Detected {label} -> click kl")
+    # --- 7. NEW: Check Left Side (if not on cooldown) ---
+    if current_time - last_attack_timestamp_left > ATTACK_COOLDOWN:
+        for box in detections:
+            try:
+                cls_id = int(box.cls[0]); label = model.names[cls_id]; conf = float(box.conf[0])
+            except: continue
+            if label == PLAYER_CLASS_NAME or conf < model_threshold: continue
             
-            # time.sleep(0.03) # Small delay after clicking
-            break # Handle one enemy at a time
+            x1, y1, x2, y2 = box.xyxy[0]; enemy_center_x = (x1 + x2) / 2
 
-        # Check RIGHT Zone
-        if right_danger_zone_start < enemy_center_x < right_danger_zone_end:
-            enemy_detected_in_zone = True
-            # --- NEW: Draw RED box on the enemy ---
-            cv2.rectangle(debug_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
-            if label == "yellowbottle" or label== "left bunny":
-                pyautogui.click(button_positions["pr"])
-                print(f"Right Zone: Detected {label} -> click pr")
-            elif label == "cart" or label =="pig" or label== "redbottle":
-                pyautogui.click(button_positions["hkr"])
-                print(f"Right Zone: Detected {label} -> click hkr")
-            elif label == "furret" or label=="greenbottle":
-                pyautogui.click(button_positions["kr"])
-                print(f"Right Zone: Detected {label} -> click kr")
-            
-            # time.sleep(0.03) # Small delay after clicking
-            break 
-    # --- NEW: Show the debug frame ---
-    cv2.imshow("Bot Debug View", debug_frame)
+            # Check if enemy is in the LEFT zone
+            if left_danger_zone_start < enemy_center_x < left_danger_zone_end:
+                enemy_detected_left = True
+                # --- REMOVED: Draw RED box on the enemy ---
+                # cv2.rectangle(debug_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
+                
+                if label == "yellowbottle" or label== "left bunny":
+                    pyautogui.click(button_positions["pl"])
+                    print(f"Left Zone: Detected {label} -> click pl")
+                elif label == "cart" or label =="pig" or label== "redbottle":
+                    pyautogui.click(button_positions["hkl"])
+                    print(f"Left Zone: Detected {label} -> click hkl")
+                elif label == "furret" or label=="greenbottle":
+                    pyautogui.click(button_positions["kl"])
+                    print(f"Left Zone: Detected {label} -> click kl")
+                
+                last_attack_timestamp_left = time.time() # START LEFT COOLDOWN
+                break # Stop searching for *more* left enemies this frame
     
-    # --- NEW: This is ESSENTIAL for cv2.imshow() to work ---
-    cv2.waitKey(1)
+    # --- NEW: Check Right Side (if not on cooldown) ---
+    if current_time - last_attack_timestamp_right > ATTACK_COOLDOWN:
+        for box in detections:
+            try:
+                cls_id = int(box.cls[0]); label = model.names[cls_id]; conf = float(box.conf[0])
+            except: continue
+            if label == PLAYER_CLASS_NAME or conf < model_threshold: continue
+            
+            x1, y1, x2, y2 = box.xyxy[0]; enemy_center_x = (x1 + x2) / 2
 
-    # A tiny sleep at the end of the loop to prevent 100% CPU load
-    time.sleep(0.02)
+            # Check if enemy is in the RIGHT zone
+            if right_danger_zone_start < enemy_center_x < right_danger_zone_end:
+                enemy_detected_right = True
+                # --- REMOVED: Draw RED box on the enemy ---
+                # cv2.rectangle(debug_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
 
-# --- NEW: Clean up the window when the loop breaks ---
-cv2.destroyAllWindows()
+                if label == "yellowbottle" or label== "left bunny":
+                    pyautogui.click(button_positions["pr"])
+                    print(f"Right Zone: Detected {label} -> click pr")
+                elif label == "cart" or label =="pig" or label== "redbottle":
+                    pyautogui.click(button_positions["hkr"])
+                    print(f"Right Zone: Detected {label} -> click hkr")
+                elif label == "furret" or label=="greenbottle":
+                    pyautogui.click(button_positions["kr"])
+                    print(f"Right Zone: Detected {label} -> click kr")
+                
+                last_attack_timestamp_right = time.time() # START RIGHT COOLDOWN
+                break # Stop searching for *more* right enemies this frame
+    
+    # --- 8. Handle "Hold Run" (Idle Action) ---
+    if enemy_detected_left or enemy_detected_right:
+        pyautogui.keyUp(RUN_KEY) # An enemy was detected, so stop running
+    else:
+        # Only hold run if BOTH sides are off cooldown
+        if (current_time - last_attack_timestamp_left > ATTACK_COOLDOWN) and \
+           (current_time - last_attack_timestamp_right > ATTACK_COOLDOWN):
+            pyautogui.keyDown(RUN_KEY) # All clear, hold run
+
+    # --- 9. Show debug frame and manage loop speed ---
+    # --- REMOVED: Show the debug frame ---
+    # cv2.imshow("Bot Debug View", debug_frame)
+    # if cv2.waitKey(1) & 0xFF == ord('q'): # Allow closing window to quit
+    #     break
+    
+    # --- RE-ADD: Small sleep, since cv2.waitKey(1) was removed ---
+    time.sleep(0.01)
+
+# --- Clean up ---
+# --- REMOVED: Destroy the debug window ---
+# cv2.destroyAllWindows()
+pyautogui.keyUp(RUN_KEY) # Ensure 'run' key is released on exit
 print("Bot stopped.")
