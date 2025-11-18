@@ -10,8 +10,8 @@ from ultralytics import YOLO
 
 # --- Load Model ---
 try:
-    model = YOLO("detect_enemy_1.pt")
-    model_threshold = 0.4
+    model = YOLO("detect_enemy_6.pt")
+    model_threshold = 0.3
     print("detection model loaded")
 except Exception as e:
     print(f"[FATAL ERROR] Could not load model 'detect_enemy.pt': {e}")
@@ -209,10 +209,6 @@ MAX_DANGER_DISTANCE = 250
 RUN_KEY = 'shift' # <--- UPDATE THIS if it's a different key
 default_player_x = windowframe["width"] // 2
 
-# --- NEW: Independent Cooldowns ---
-ATTACK_COOLDOWN = 0.3 # Cooldown in seconds. TUNE THIS.
-last_attack_timestamp_left = 0
-last_attack_timestamp_right = 0
 # ---
 
 # --- REMOVED: Create the debug window ---
@@ -256,24 +252,24 @@ while True:
         print(f"Error processing results: {e}")
         continue # Skip this frame
 
-    # --- 5. PASS 1: Find the Player (This is UNCOMMENTED and fixed) ---
-    for box in detections:
-        try:
-            cls_id = int(box.cls[0])
-            label = model.names[cls_id]
+    # # --- 5. PASS 1: Find the Player (This is UNCOMMENTED and fixed) ---
+    # for box in detections:
+    #     try:
+    #         cls_id = int(box.cls[0])
+    #         label = model.names[cls_id]
 
-            if label == PLAYER_CLASS_NAME:
-                x1, y1, x2, y2 = box.xyxy[0]
-                current_player_x = (x1 + x2) / 2 # Get player's center X
+    #         if label == PLAYER_CLASS_NAME:
+    #             x1, y1, x2, y2 = box.xyxy[0]
+    #             current_player_x = (x1 + x2) / 2 # Get player's center X
                 
-                # --- REMOVED: Draw GREEN box on the duck ---
-                pt1 = (int(x1), int(y1))
-                pt2 = (int(x2), int(y2))
-                cv2.rectangle(debug_frame, pt1, pt2, (0, 255, 0), 2)
-                cv2.putText(debug_frame, "PLAYER", (pt1[0], pt1[1] - 10),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                break # Found the player, stop this loop
-        except:
-            continue # Ignore bad detections
+    #             # --- REMOVED: Draw GREEN box on the duck ---
+    #             pt1 = (int(x1), int(y1))
+    #             pt2 = (int(x2), int(y2))
+    #             cv2.rectangle(debug_frame, pt1, pt2, (0, 255, 0), 2)
+    #             cv2.putText(debug_frame, "PLAYER", (pt1[0], pt1[1] - 10),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    #             break # Found the player, stop this loop
+    #     except:
+    #         continue # Ignore bad detections
 
     # --- 6. PASS 2: Find Enemies in the *New Smaller Zones* ---
     
@@ -288,71 +284,54 @@ while True:
     cv2.rectangle(debug_frame, (right_danger_zone_start, 0), (right_danger_zone_end, h), (0, 255, 255), 2)
 
     # --- 7. NEW: Check Left Side (if not on cooldown) ---
-    if current_time - last_attack_timestamp_left > ATTACK_COOLDOWN:
-        for box in detections:
-            try:
-                cls_id = int(box.cls[0]); label = model.names[cls_id]; conf = float(box.conf[0])
-            except: continue
-            if label == PLAYER_CLASS_NAME or conf < model_threshold: continue
-            
-            x1, y1, x2, y2 = box.xyxy[0]; enemy_center_x = (x1 + x2) / 2
+    for box in detections:
+        try:
+            cls_id = int(box.cls[0]); label = model.names[cls_id]; conf = float(box.conf[0])
+        except: continue
+        if label == PLAYER_CLASS_NAME or conf < model_threshold: continue
+        
+        x1, y1, x2, y2 = box.xyxy[0]; enemy_center_x = (x1 + x2) / 2
 
-            # Check if enemy is in the LEFT zone
-            if left_danger_zone_start < enemy_center_x < left_danger_zone_end:
-                enemy_detected_left = True
-                # --- REMOVED: Draw RED box on the enemy ---
-                cv2.rectangle(debug_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
-                
-                if label == "yellowbottle" or label== "left bunny":
-                    pyautogui.click(button_positions["pl"])
-                    print(f"Left Zone: Detected {label} -> click pl")
-                elif label == "cart" or label =="pig" or label== "redbottle":
-                    pyautogui.click(button_positions["hkl"])
-                    print(f"Left Zone: Detected {label} -> click hkl")
-                elif label == "furret" or label=="greenbottle":
-                    pyautogui.click(button_positions["kl"])
-                    print(f"Left Zone: Detected {label} -> click kl")
-                
-                last_attack_timestamp_left = time.time() # START LEFT COOLDOWN
-                break # Stop searching for *more* left enemies this frame
+        # Check if enemy is in the LEFT zone
+        if left_danger_zone_start < enemy_center_x < left_danger_zone_end:
+            enemy_detected_left = True
+            # --- REMOVED: Draw RED box on the enemy ---
+            cv2.rectangle(debug_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
+            
+            if label == "yellowbottle" or label== "left bunny":
+                pyautogui.click(button_positions["pl"])
+                print(f"Left Zone: Detected {label} -> click pl")
+            elif label == "cart" or label =="pig" or label== "redbottle":
+                pyautogui.click(button_positions["hkl"])
+                print(f"Left Zone: Detected {label} -> click hkl")
+            elif label == "furret" or label=="greenbottle":
+                pyautogui.click(button_positions["kl"])
+                print(f"Left Zone: Detected {label} -> click kl")
     
     # --- NEW: Check Right Side (if not on cooldown) ---
-    if current_time - last_attack_timestamp_right > ATTACK_COOLDOWN:
-        for box in detections:
-            try:
-                cls_id = int(box.cls[0]); label = model.names[cls_id]; conf = float(box.conf[0])
-            except: continue
-            if label == PLAYER_CLASS_NAME or conf < model_threshold: continue
-            
-            x1, y1, x2, y2 = box.xyxy[0]; enemy_center_x = (x1 + x2) / 2
+    for box in detections:
+        try:
+            cls_id = int(box.cls[0]); label = model.names[cls_id]; conf = float(box.conf[0])
+        except: continue
+        if label == PLAYER_CLASS_NAME or conf < model_threshold: continue
+        
+        x1, y1, x2, y2 = box.xyxy[0]; enemy_center_x = (x1 + x2) / 2
 
-            # Check if enemy is in the RIGHT zone
-            if right_danger_zone_start < enemy_center_x < right_danger_zone_end:
-                enemy_detected_right = True
-                # --- REMOVED: Draw RED box on the enemy ---
-                cv2.rectangle(debug_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
+        # Check if enemy is in the RIGHT zone
+        if right_danger_zone_start < enemy_center_x < right_danger_zone_end:
+            enemy_detected_right = True
+            # --- REMOVED: Draw RED box on the enemy ---
+            cv2.rectangle(debug_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
 
-                if label == "yellowbottle" or label== "left bunny":
-                    pyautogui.click(button_positions["pr"])
-                    print(f"Right Zone: Detected {label} -> click pr")
-                elif label == "cart" or label =="pig" or label== "redbottle":
-                    pyautogui.click(button_positions["hkr"])
-                    print(f"Right Zone: Detected {label} -> click hkr")
-                elif label == "furret" or label=="greenbottle":
-                    pyautogui.click(button_positions["kr"])
-                    print(f"Right Zone: Detected {label} -> click kr")
-                
-                last_attack_timestamp_right = time.time() # START RIGHT COOLDOWN
-                break # Stop searching for *more* right enemies this frame
-    
-    # --- 8. Handle "Hold Run" (Idle Action) ---
-    if enemy_detected_left or enemy_detected_right:
-        pyautogui.keyUp(RUN_KEY) # An enemy was detected, so stop running
-    else:
-        # Only hold run if BOTH sides are off cooldown
-        if (current_time - last_attack_timestamp_left > ATTACK_COOLDOWN) and \
-           (current_time - last_attack_timestamp_right > ATTACK_COOLDOWN):
-            pyautogui.keyDown(RUN_KEY) # All clear, hold run
+            if label == "yellowbottle" or label== "left bunny":
+                pyautogui.click(button_positions["pr"])
+                print(f"Right Zone: Detected {label} -> click pr")
+            elif label == "cart" or label =="pig" or label== "redbottle":
+                pyautogui.click(button_positions["hkr"])
+                print(f"Right Zone: Detected {label} -> click hkr")
+            elif label == "furret" or label=="greenbottle":
+                pyautogui.click(button_positions["kr"])
+                print(f"Right Zone: Detected {label} -> click kr")
 
     # --- 9. Show debug frame and manage loop speed ---
     # --- REMOVED: Show the debug frame ---
