@@ -10,7 +10,7 @@ from ultralytics import YOLO
 
 # --- Load Model ---
 try:
-    model = YOLO("detect_enemy_8.pt")
+    model = YOLO("detect_enemy_v10.pt")
     model_threshold = 0.3
     print("detection model loaded")
 except Exception as e:
@@ -232,7 +232,7 @@ while True:
     # --- 4. GRAB ONCE, PREDICT ONCE ---
     img = np.array(sct.grab(windowframe))
     frame_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-    
+
     # --- REMOVED: Create a copy of the frame to draw on ---
     debug_frame = frame_bgr.copy()
     h, w, _ = debug_frame.shape
@@ -240,8 +240,6 @@ while True:
     # Run YOLOv8 detection ONCE on the full frame
     results = model(frame_bgr, conf=model_threshold, verbose=False, stream=True)
 
-    enemy_detected_left = False # Reset flag
-    enemy_detected_right = False # Reset flag
     current_player_x = default_player_x # Reset to default each frame
     
     detections = []
@@ -294,7 +292,6 @@ while True:
 
         # Check if enemy is in the LEFT zone
         if left_danger_zone_start < enemy_center_x < left_danger_zone_end:
-            enemy_detected_left = True
             # --- REMOVED: Draw RED box on the enemy ---
             cv2.rectangle(debug_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
             
@@ -319,7 +316,6 @@ while True:
 
         # Check if enemy is in the RIGHT zone
         if right_danger_zone_start < enemy_center_x < right_danger_zone_end:
-            enemy_detected_right = True
             # --- REMOVED: Draw RED box on the enemy ---
             cv2.rectangle(debug_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
 
