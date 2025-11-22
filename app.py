@@ -264,7 +264,7 @@ while True:
             # Draw RED box on the enemy
             cv2.rectangle(debug_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
             
-            if label == "yellowbottle" or label== "left bunny":
+            if label == "yellow bottle" or label== "left bunny":
                 pyautogui.click(button_positions["pl"])
                 print(f"Left Zone: Detected {label} -> click pl")
             elif label == "cart" or label =="pig" or label== "redbottle":
