@@ -195,7 +195,7 @@ if button_positions is None:
 # DEFINE DYNAMIC ZONES & PLAYER
 PLAYER_CLASS_NAME = "duck" 
 DANGER_ZONE_BUFFER = 20  
-MAX_DANGER_DISTANCE = 230 
+MAX_DANGER_DISTANCE = 250 
 RUN_KEY = 'shift'
 default_player_x = windowframe["width"] // 2
 
